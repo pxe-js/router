@@ -1,0 +1,19 @@
+{
+    "name": "@pxe/router",
+    "version": "1.0.0",
+    "description": "Router middleware",
+    "main": "index.js",
+    "author": "reve-node",
+    "license": "MIT",
+    "devDependencies": {
+        "@pxe/server": "^1.0.5-alpha.4",
+        "@types/node": "^18.0.0",
+        "esbuild": "^0.14.47",
+        "ts-node": "^10.8.1",
+        "typescript": "^4.7.4"
+    },
+    "exports": {
+        ".": "./index.js"
+    },
+    "types": "./types/index.d.ts"
+}
