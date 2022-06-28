@@ -1,6 +1,6 @@
 {
     "name": "@pxe/router",
-    "version": "1.0.0",
+    "version": "1.0.0-alpha.1",
     "description": "Router middleware",
     "main": "index.js",
     "author": "reve-node",

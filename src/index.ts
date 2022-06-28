@@ -73,11 +73,18 @@ class Router extends Function {
 
     private readonly middlewares: Server.Middleware[];
 
-    constructor() {
+    /**
+     * Create a router middleware
+     * @param root root path
+     */
+    constructor(private readonly root: string = "/") {
         super();
 
         this.routes = {};
         this.middlewares = [];
+
+        if (this.root === "/")
+            this.root = "";
 
         return new Proxy(this, {
             apply(target, _, args) {
@@ -92,7 +99,7 @@ class Router extends Function {
      * @param handler 
      */
     handle(route: string, handler: Router.RouteHandler) {
-        this.routes[route] = handler;
+        this.routes[this.root + route] = handler;
     }
 
     /**
@@ -135,7 +142,8 @@ class Router extends Function {
                     await routeMethodHandler(ctx);
             }
         }
-        await runMiddleware(0);
+        if (ctx.request.url.startsWith(this.root))
+            await runMiddleware(0);
 
         // Next middleware
         await next(...args);
