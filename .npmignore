@@ -5,3 +5,4 @@ node_modules
 .gitignore
 tests
 build.js
+README.md

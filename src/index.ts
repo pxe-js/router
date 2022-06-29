@@ -63,6 +63,11 @@ declare namespace Router {
          * @param ctx 
          */
         all(ctx: Server.Context): Promise<void> | void;
+
+        /**
+         * Other method handler
+         */
+        [method: string]: (ctx: Server.Context) => Promise<void> | void;
     }
 }
 
@@ -99,6 +104,8 @@ class Router extends Function {
      * @param handler 
      */
     handle(route: string, handler: Router.RouteHandler) {
+        if (route === "/" && this.root !== "")
+            route = "";
         this.routes[this.root + route] = handler;
     }
 
