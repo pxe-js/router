@@ -82,7 +82,7 @@ class Router extends Function {
      * Create a router middleware
      * @param root root path
      */
-    constructor(private readonly root: string = "/") {
+    constructor(private root: string = "/") {
         super();
 
         this.routes = {};
@@ -114,7 +114,12 @@ class Router extends Function {
      * @param m 
      */
     use(...m: Server.Middleware[]) {
-        this.middlewares.push(...m);
+        for (const md of m) {
+            if (md instanceof Router) 
+                md.root += this.root;
+        
+            this.middlewares.push(md);
+        }
     }
 
     /**
