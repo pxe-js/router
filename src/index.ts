@@ -19,6 +19,7 @@ declare namespace Router {
     }
 }
 
+// Add a new property to ctx.request
 declare module "@pxe/server" {
     interface IncomingRequest {
         // @ts-ignore
@@ -26,24 +27,59 @@ declare module "@pxe/server" {
     }
 }
 
+// List of route handlers
 type RouteHandlerList = {
     [routeName: string]: Router.RouteHandler;
 }
 
+// Normalize the input route name
+function normalize(route: string) {
+    if (route.startsWith("/"))
+        route = route.substring(1);
+    return route;
+}
+
+// Run a route handler
+async function runRoute(routeHandler: Router.RouteHandler, ctx: Server.Context) {
+    // Run for all route
+    if (typeof routeHandler.all === "function")
+        await routeHandler.all(ctx);
+
+    const routeMethodHandler = routeHandler[ctx.request.method.toLowerCase()];
+    if (typeof routeMethodHandler === "function")
+        await routeMethodHandler(ctx);
+}
+
+// Search for matching param route
+function searchMatch(url: string, paramRoutes: RouteHandlerList) {
+    for (const key in paramRoutes) {
+        const mtch = match(key)(url);
+
+        if (mtch)
+            return {
+                matches: key,
+                params: mtch.params,
+            };
+    };
+}
+
+// Main class 
 class Router extends Function {
     private readonly routes: RouteHandlerList;
     private readonly paramRoutes: RouteHandlerList;
     private readonly middlewares: Server.Middleware[];
 
-    constructor(private root: string = "/") {
+    constructor(private root?: string) {
         super();
+
+        if (!root)
+            this.root = "/";
+        else
+            this.root = root;
 
         this.routes = {};
         this.paramRoutes = {};
         this.middlewares = [];
-
-        if (this.root === "/")
-            this.root = "";
 
         return new Proxy(this, {
             apply(target, _, args) {
@@ -53,17 +89,11 @@ class Router extends Function {
     }
 
     handle(route: string, handler: Router.RouteHandler) {
-        if (route === "/" && this.root !== "")
-            route = "";
-
-        this.routes[this.root + route] = handler;
+        this.routes[this.root + normalize(route)] = handler;
     }
 
     param(route: string, handler: Router.RouteHandler) {
-        if (route === "/" && this.root !== "")
-            route = "";
-
-        this.paramRoutes[this.root + route] = handler;
+        this.paramRoutes[this.root + normalize(route)] = handler;
     }
 
     use(...m: Server.Middleware[]) {
@@ -73,28 +103,6 @@ class Router extends Function {
 
             this.middlewares.push(md);
         }
-    }
-
-    private searchMatch(url: string) {
-        for (const key in this.paramRoutes) {
-            const mtch = match(key)(url);
-
-            if (mtch)
-                return {
-                    matches: key,
-                    params: mtch.params,
-                };
-        };
-    }
-
-    private async runRoute(routeHandler: Router.RouteHandler, ctx: Server.Context) {
-        // Run for all route
-        if (typeof routeHandler.all === "function")
-            await routeHandler.all(ctx);
-
-        const routeMethodHandler = routeHandler[ctx.request.method.toLowerCase()];
-        if (typeof routeMethodHandler === "function")
-            await routeMethodHandler(ctx);
     }
 
     async cb(ctx: Server.Context, next: Server.NextFunction, ...args: any[]) {
@@ -114,14 +122,14 @@ class Router extends Function {
             // Run routes after running all the middlewares
             const routeHandler = this.routes[ctx.request.url];
             if (routeHandler)
-                await this.runRoute(routeHandler, ctx);
+                await runRoute(routeHandler, ctx);
             else {
-                const obj = this.searchMatch(ctx.request.url);
+                const obj = searchMatch(ctx.request.url, this.paramRoutes);
 
                 if (obj) {
                     // @ts-ignore
                     ctx.request.params = obj.params;
-                    await this.runRoute(this.paramRoutes[obj.matches], ctx);
+                    await runRoute(this.paramRoutes[obj.matches], ctx);
                 }
             }
         }
