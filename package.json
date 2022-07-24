@@ -1,14 +1,15 @@
 {
     "name": "@pxe/router",
-    "version": "1.0.1-alpha.1",
+    "version": "1.0.1-alpha.2",
     "description": "Router middleware for PXE.js",
     "main": "index.js",
     "author": "reve-node",
     "license": "MIT",
     "devDependencies": {
-        "@pxe/server": "^1.0.9",
+        "@pxe/server": "^1.0.11-alpha.1",
         "@types/node": "^18.0.0",
         "esbuild": "^0.14.47",
+        "path-to-regexp": "^6.2.1",
         "ts-node": "^10.8.1",
         "typescript": "^4.7.4"
     },

@@ -1,91 +1,45 @@
 import Server from "@pxe/server";
+import { match } from "path-to-regexp";
 
 interface Router extends Server.Middleware { }
 
 declare namespace Router {
     export interface RouteHandler {
-        /**
-         * GET method handler
-         * @param ctx 
-         */
         get(ctx: Server.Context): Promise<void> | void;
-
-        /**
-         * POST method handler
-         * @param ctx 
-         */
         post(ctx: Server.Context): Promise<void> | void;
-
-        /**
-         * PUT method handler
-         * @param ctx 
-         */
         put(ctx: Server.Context): Promise<void> | void;
-
-        /**
-         * DELETE method handler
-         * @param ctx 
-         */
         delete(ctx: Server.Context): Promise<void> | void;
-
-        /**
-         * HEAD method handler
-         * @param ctx 
-         */
         head(ctx: Server.Context): Promise<void> | void;
-
-        /**
-         * CONNECT method handler
-         * @param ctx 
-         */
         connect(ctx: Server.Context): Promise<void> | void;
-
-        /**
-         * OPTIONS method handler
-         * @param ctx 
-         */
         options(ctx: Server.Context): Promise<void> | void;
-
-        /**
-         * TRACE method handler
-         * @param ctx 
-         */
         trace(ctx: Server.Context): Promise<void> | void;
-
-        /**
-         * PATCH method handler
-         * @param ctx 
-         */
         patch(ctx: Server.Context): Promise<void> | void;
-
-        /**
-         * All method handler
-         * @param ctx 
-         */
         all(ctx: Server.Context): Promise<void> | void;
-
-        /**
-         * Other method handler
-         */
         [method: string]: (ctx: Server.Context) => Promise<void> | void;
     }
 }
 
-class Router extends Function {
-    private readonly routes: {
-        [routeName: string]: Router.RouteHandler;
-    };
+declare module "@pxe/server" {
+    interface IncomingRequest {
+        // @ts-ignore
+        readonly params?: object;
+    }
+}
 
+type RouteHandlerList = {
+    [routeName: string]: Router.RouteHandler;
+}
+
+class Router extends Function {
+    private readonly routes: RouteHandlerList;
+    private readonly paramRoutes: RouteHandlerList;
     private readonly middlewares: Server.Middleware[];
 
-    /**
-     * Create a router middleware
-     * @param root root path
-     */
     constructor(private root: string = "/") {
         super();
 
         this.routes = {};
+        this.paramRoutes = {};
         this.middlewares = [];
 
         if (this.root === "/")
@@ -98,36 +52,51 @@ class Router extends Function {
         });
     }
 
-    /**
-     * Handle a route
-     * @param route 
-     * @param handler 
-     */
     handle(route: string, handler: Router.RouteHandler) {
         if (route === "/" && this.root !== "")
             route = "";
+
         this.routes[this.root + route] = handler;
     }
 
-    /**
-     * Add middlewares
-     * @param m 
-     */
+    param(route: string, handler: Router.RouteHandler) {
+        if (route === "/" && this.root !== "")
+            route = "";
+
+        this.paramRoutes[this.root + route] = handler;
+    }
+
     use(...m: Server.Middleware[]) {
         for (const md of m) {
-            if (md instanceof Router) 
+            if (md instanceof Router)
                 md.root += this.root;
-        
+
             this.middlewares.push(md);
         }
     }
 
-    /**
-     * The callback of this middleware
-     * @param ctx 
-     * @param next 
-     * @param args 
-     */
+    private searchMatch(url: string) {
+        for (const key in this.paramRoutes) {
+            const mtch = match(key)(url);
+
+            if (mtch)
+                return {
+                    matches: key,
+                    params: mtch.params,
+                };
+        };
+    }
+
+    private async runRoute(routeHandler: Router.RouteHandler, ctx: Server.Context) {
+        // Run for all route
+        if (typeof routeHandler.all === "function")
+            await routeHandler.all(ctx);
+
+        const routeMethodHandler = routeHandler[ctx.request.method.toLowerCase()];
+        if (typeof routeMethodHandler === "function")
+            await routeMethodHandler(ctx);
+    }
+
     async cb(ctx: Server.Context, next: Server.NextFunction, ...args: any[]) {
         // Run all middlewares
         const runMiddleware = async (i: number, ...a: any[]) => {
@@ -144,14 +113,16 @@ class Router extends Function {
 
             // Run routes after running all the middlewares
             const routeHandler = this.routes[ctx.request.url];
-            if (routeHandler) {
-                // Run for all route
-                if (typeof routeHandler.all === "function")
-                    await routeHandler.all(ctx);
+            if (routeHandler)
+                await this.runRoute(routeHandler, ctx);
+            else {
+                const obj = this.searchMatch(ctx.request.url);
 
-                const routeMethodHandler = routeHandler[ctx.request.method.toLowerCase()];
-                if (typeof routeMethodHandler === "function")
-                    await routeMethodHandler(ctx);
+                if (obj) {
+                    // @ts-ignore
+                    ctx.request.params = obj.params;
+                    await this.runRoute(this.paramRoutes[obj.matches], ctx);
+                }
             }
         }
         if (ctx.request.url.startsWith(this.root))
