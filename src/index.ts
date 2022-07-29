@@ -77,6 +77,9 @@ class Router extends Function {
         else
             this.root = root;
 
+        if (!this.root.endsWith("/"))
+            this.root += "/";
+
         this.routes = {};
         this.paramRoutes = {};
         this.middlewares = [];
