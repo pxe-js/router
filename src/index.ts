@@ -1,5 +1,6 @@
 import Server from "@pxe/server";
-import { match } from "path-to-regexp";
+import Trouter, { Methods } from "trouter";
+import { Context } from "@pxe/server";
 
 interface Router extends Server.Middleware { }
 
@@ -27,11 +28,6 @@ declare module "@pxe/server" {
     }
 }
 
-// List of route handlers
-type RouteHandlerList = {
-    [routeName: string]: Router.RouteHandler;
-}
-
 // Normalize the input route name
 function normalize(route: string) {
     if (route.startsWith("/"))
@@ -39,34 +35,9 @@ function normalize(route: string) {
     return route;
 }
 
-// Run a route handler
-async function runRoute(routeHandler: Router.RouteHandler, ctx: Server.Context) {
-    // Run for all route
-    if (typeof routeHandler.all === "function")
-        await routeHandler.all(ctx);
-
-    const routeMethodHandler = routeHandler[ctx.request.method.toLowerCase()];
-    if (typeof routeMethodHandler === "function")
-        await routeMethodHandler(ctx);
-}
-
-// Search for matching param route
-function searchMatch(url: string, paramRoutes: RouteHandlerList) {
-    for (const key in paramRoutes) {
-        const mtch = match(key)(url);
-
-        if (mtch)
-            return {
-                matches: key,
-                params: mtch.params,
-            };
-    };
-}
-
 // Main class 
 class Router extends Function {
-    private readonly routes: RouteHandlerList;
-    private readonly paramRoutes: RouteHandlerList;
+    private readonly routes: Trouter<(ctx: Context) => Promise<void> | void>;
     private readonly middlewares: Server.Middleware[];
 
     constructor(private root?: string) {
@@ -80,8 +51,7 @@ class Router extends Function {
         if (!this.root.endsWith("/"))
             this.root += "/";
 
-        this.routes = {};
-        this.paramRoutes = {};
+        this.routes = new Trouter();
         this.middlewares = [];
 
         return new Proxy(this, {
@@ -92,11 +62,12 @@ class Router extends Function {
     }
 
     handle(route: string, handler: Router.RouteHandler) {
-        this.routes[this.root + normalize(route)] = handler;
-    }
-
-    param(route: string, handler: Router.RouteHandler) {
-        this.paramRoutes[this.root + normalize(route)] = handler;
+        for (const method in handler) 
+            this.routes.add(
+                method.toUpperCase() as Methods, 
+                this.root + normalize(route), 
+                handler[method]
+            );
     }
 
     use(...m: Server.Middleware[]) {
@@ -108,36 +79,28 @@ class Router extends Function {
         }
     }
 
+    async runMiddleware(i: number, ctx: Context, ...a: any[]) {
+        const currentMiddleware = this.middlewares[i];
+
+        // Run the next middleware
+        if (i < this.middlewares.length && typeof currentMiddleware === "function")
+            return currentMiddleware(
+                // @ts-ignore
+                ctx,
+                async (...args: any[]) => this.runMiddleware(i + 1, ctx, ...args),
+                ...a
+            );
+
+        // Run routes after running all the middlewares
+        const route = this.routes.find(ctx.request.method, ctx.request.url);
+        ctx.params = route.params;
+        for (const handler of route.handlers)
+            await handler(ctx);
+    }
+
     async cb(ctx: Server.Context, next: Server.NextFunction, ...args: any[]) {
-        // Run all middlewares
-        const runMiddleware = async (i: number, ...a: any[]) => {
-            const currentMiddleware = this.middlewares[i];
-
-            // Run the next middleware
-            if (i < this.middlewares.length && typeof currentMiddleware === "function")
-                return currentMiddleware(
-                    // @ts-ignore
-                    ctx,
-                    async (...args: any[]) => runMiddleware(i + 1, ...args),
-                    ...a
-                );
-
-            // Run routes after running all the middlewares
-            const routeHandler = this.routes[ctx.request.url];
-            if (routeHandler)
-                await runRoute(routeHandler, ctx);
-            else {
-                const obj = searchMatch(ctx.request.url, this.paramRoutes);
-
-                if (obj) {
-                    // @ts-ignore
-                    ctx.request.params = obj.params;
-                    await runRoute(this.paramRoutes[obj.matches], ctx);
-                }
-            }
-        }
         if (ctx.request.url.startsWith(this.root))
-            await runMiddleware(0);
+            await ctx.runMiddleware(0, ctx);
 
         // Next middleware
         await next(...args);
